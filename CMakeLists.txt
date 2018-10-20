@@ -38,5 +38,6 @@ add_definitions(-DUNICODE -D_UNICODE)
 # Add doctest stuff
 #add_definitions(-DDOCTEST_CONFIG_IMPLEMENT)
 include_directories("../stb")
+include_directories("../glm")
 
 add_subdirectory(stl2png)
