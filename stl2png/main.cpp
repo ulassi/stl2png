@@ -11,6 +11,9 @@
 #include <vector>
 #include <stb_image_write.h>
 
+#include <glad/glad.h>
+#include <glfw/glfw3.h>
+
 namespace {
 std::streamsize tell_file_size(std::ifstream& fs) {
     std::streamsize at = fs.tellg();
@@ -18,6 +21,15 @@ std::streamsize tell_file_size(std::ifstream& fs) {
     std::streamsize sz = fs.gcount();
     fs.seekg(at);
     return at + sz;
+}
+bool file_to_string(const std::string& file, std::string& str) {
+	if (std::ifstream fs = std::ifstream(file)) {
+		str = std::string((std::istreambuf_iterator<char>(fs)), std::istreambuf_iterator<char>());
+		return true;
+	}
+	else {
+		return false;
+	}
 }
 }  // namespace
 namespace STL {
@@ -67,18 +79,18 @@ std::optional<STLdata> read(const std::string& file) {
         };
         for (size_t i = 0; i < num_facets; ++i) {
             if (read_stl_elem(data[i].m_normal, fs) == false) {
-                printf("Failed reading facet %d from file...", i);
+                printf("Failed reading facet %llu from file...", i);
                 return {};
             }
             for (int j = 0; j < 3; ++j) {
                 if (read_stl_elem(data[i].m_vertices[j], fs) == false) {
-                    printf("Failed reading facet %d from file...", i);
+                    printf("Failed reading facet %llu from file...", i);
                     return {};
                 }
             }
             fs.read(reinterpret_cast<char*>(&data[i].m_attribute), 2);
             if (fs.gcount() != 2) {
-                printf("Failed reading facet %d from file...", i);
+                printf("Failed reading facet %llu from file...", i);
                 return {};
             }
         }
@@ -90,17 +102,159 @@ std::optional<STLdata> read(const std::string& file) {
 }
 }  // namespace STL
 
+namespace Graphics {
+
+void error_callback(int error, const char* description)
+{
+	fprintf(stderr, "Error: %s\n", description);
+}
+
+#pragma pack(1)
+struct Vert {
+	Vert(const glm::vec3& pos, const glm::vec3& normal) : x(pos[0]), y(pos[1]), z(pos[2]), nx(normal[0]), ny(normal[1]), nz(normal[2])
+	{}
+	float x=0.f, y = 0.f, z = 0.f;
+	float nx = 0.f, ny = 0.f, nz = 0.f;
+	static constexpr int position_offset = 0;
+	static constexpr int position_elements = 3;
+	static constexpr int position_type = GL_FLOAT;
+	static constexpr int normal_offset = 3*sizeof(float);
+	static constexpr int normal_elements = 3;
+	static constexpr int normal_type = GL_FLOAT;
+};
+
+void fill_vertex_buffer(const STL::STLdata& data, std::vector<Vert>& vertices) {
+	for (auto& f : data) {
+		for (auto& v : f.m_vertices) {
+			vertices.emplace_back(v, f.m_normal);
+		}
+	}
+}
+
+bool compileGLSLShaderFromFile(const std::string& file, GLint type, GLuint& shader_object) {
+	std::string shader_code;
+	if (::file_to_string(file, shader_code) == false) {
+		fprintf(stderr, "Failed to read %s", file.c_str());
+		return false;
+	}
+	GLint shader_code_len = static_cast<GLint>(shader_code.size());
+	const GLchar* shader_string[] = { nullptr };
+	shader_string[0] = shader_code.data();
+	shader_object = glCreateShader(type);
+	glShaderSource(shader_object, 1, shader_string, &shader_code_len);
+	glCompileShader(shader_object);
+
+	GLint params = GL_FALSE;
+	glGetShaderiv(shader_object, GL_COMPILE_STATUS, &params);
+	if (params != GL_TRUE) {
+		GLint maxLength = 0;
+		glGetShaderiv(shader_object, GL_INFO_LOG_LENGTH, &maxLength);
+		std::vector<GLchar> errorLog(maxLength);
+		glGetShaderInfoLog(shader_object, maxLength, &maxLength, &errorLog[0]);
+		fprintf(stderr, "Shader compilation error: %s", errorLog.data());
+		return false;
+	}
+	return true;
+}
+
+}
 int render_stl(const std::string& stl, std::vector<std::string>& options) {
     if (auto data = STL::read(stl)) {
-        /*
-        setup_opengl_context();
+		GLFWwindow* window{ nullptr };
+		glfwSetErrorCallback(Graphics::error_callback);
 
-        bind_opengl_resources();
+		if (!glfwInit()) {
+			fprintf(stderr, "Failed to init glfw");
+			return -1;
+		}
 
-        auto render_views = {
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
-        };
-        */
+		window = glfwCreateWindow(640, 480, "STL2PNG", NULL, NULL);
+		if (!window)
+		{
+			glfwTerminate();
+			fprintf(stderr, "Failed to create glfw window");
+			return -1;
+		}
+
+		glfwMakeContextCurrent(window);
+		gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+		glfwSwapInterval(1);
+
+		GLuint vertex_buffer, vertex_shader, fragment_shader, program;
+		if (Graphics::compileGLSLShaderFromFile("vertex.glsl", GL_VERTEX_SHADER, vertex_shader) == false) {
+			return -1;
+		}
+		if (Graphics::compileGLSLShaderFromFile("fragment.glsl", GL_FRAGMENT_SHADER, fragment_shader) == false) {
+			return -1;
+		}
+		program = glCreateProgram();
+		glAttachShader(program, vertex_shader);
+		glAttachShader(program, fragment_shader);
+		glLinkProgram(program);
+		GLint params = GL_FALSE;
+		glGetProgramiv(program, GL_LINK_STATUS, &params);
+		if (params != GL_TRUE) {
+			printf("Failed to link shader program");
+			return -1;
+		}
+
+		glGenBuffers(1, &vertex_buffer);
+		glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
+		
+		std::vector<Graphics::Vert> vertices;
+		fill_vertex_buffer(*data, vertices);
+		auto buffer_size = sizeof(vertices)*vertices.size();
+		glBufferData(GL_ARRAY_BUFFER, buffer_size, reinterpret_cast<void*>(vertices.data()), GL_STATIC_DRAW);
+		
+		
+		GLint mvp_location, vposition_location, vnormal_location;
+		mvp_location = glGetUniformLocation(program, "MVP");
+		vposition_location = glGetAttribLocation(program, "vPosition");
+		vnormal_location = glGetAttribLocation(program, "vNormal");
+
+        glEnableVertexAttribArray(vposition_location);
+        glVertexAttribPointer(vposition_location, Graphics::Vert::position_elements,
+                                Graphics::Vert::position_type, GL_FALSE, sizeof(Graphics::Vert),
+								reinterpret_cast<void*>(Graphics::Vert::position_offset));
+		if (vnormal_location >= 0) {
+			glEnableVertexAttribArray(vnormal_location);
+			glVertexAttribPointer(vnormal_location, Graphics::Vert::normal_elements,
+				Graphics::Vert::normal_type, GL_FALSE, sizeof(Graphics::Vert),
+				reinterpret_cast<const void*>(int(Graphics::Vert::normal_offset)));
+		}
+		glm::mat4 view = glm::lookAt(glm::vec3(5.f, 5.f, 5.f), glm::vec3(0.f), glm::vec3(0.f,1.f,0.f));
+		glm::mat4 model = glm::mat4(1.f);
+		
+
+		
+		while (!glfwWindowShouldClose(window))
+		{
+			float ratio;
+			int width, height;
+
+			glfwGetFramebufferSize(window, &width, &height);
+			ratio = width / (float)height;
+			glm::mat4 proj = glm::perspective(45.0f, ratio, 0.1f, 100.f);
+			glm::mat4 mvp = proj * view * model;
+
+			glViewport(0, 0, width, height);
+			glClearColor(0.1f, 0.1f, 0.1f, 1.f);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+			glUseProgram(program);
+			glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(mvp));
+			glDisable(GL_CULL_FACE);
+			glEnable(GL_DEPTH_TEST);
+			glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size()));
+
+			glfwSwapBuffers(window);
+			glfwPollEvents();
+		}
+
+#if 0
         struct View {
             glm::mat4 m_viewMat;
             glm::mat4 m_projMat;
@@ -118,6 +272,9 @@ int render_stl(const std::string& stl, std::vector<std::string>& options) {
         int c = 4;
         int byte_per_channel = 1;
         for (auto view : render_views) {
+
+			
+
             /*setup_view_matrices();
 
             draw_view();
@@ -136,6 +293,9 @@ int render_stl(const std::string& stl, std::vector<std::string>& options) {
 				return -1;
             }
         }
+#endif
+		glfwDestroyWindow(window);
+		glfwTerminate();
         return 0;
     } else {
         return -1;

@@ -16,3 +16,4 @@ stl2png/Release/
 *.pdb
 *.obj
 *.lib
+*.txt
