@@ -6,3 +6,5 @@ Language: Cpp
 DerivePointerAlignment: false
 PointerAlignment: Left
 ColumnLimit: 100
+AlignAfterOpenBracket: true
+AllowAllParametersOfDeclarationOnNextLine: false
