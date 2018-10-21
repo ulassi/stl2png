@@ -8,6 +8,8 @@
 #include <fstream>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/mat4x4.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/component_wise.hpp>
 #include <glm/vec3.hpp>
 #include <iostream>
 #include <optional>
@@ -51,33 +53,31 @@ std::optional<STLdata> read(const std::string& file) {
         STLdata data;
         std::streamsize sz = ::tell_file_size(fs);
 
-		if (sz < 80) {
-			std::fputs("Not a binary STL...", stderr);
-			// TODO: try parse ascii instead?
-			return {};
-		}
-
-		// try read header
-		char	header[81];
-		fs.read(header, 80);
-		if (fs.gcount() != 80) {
-			std::fputs("Failed reading file...", stderr);
-			return {};
-		}
-		std::string header_str(header, 80);
-		if (header_str.find("solid") != std::string::npos) {
-			std::fputs( "Not a binary STL...", stderr);
-			// TODO: try parse ascii instead?
-			return {};
-		}
-
-		
-		int64_t data_size = sz - 80 - 4;
-        if (data_size < STL_MIN_SIZE) {
-            std::fputs( "Invalid binary STL...", stderr);
+        if (sz < 80) {
+            std::fputs("Not a binary STL...", stderr);
+            // TODO: try parse ascii instead?
             return {};
         }
 
+        // try read header
+        char header[81];
+        fs.read(header, 80);
+        if (fs.gcount() != 80) {
+            std::fputs("Failed reading file...", stderr);
+            return {};
+        }
+        std::string header_str(header, 80);
+        if (header_str.find("solid") != std::string::npos) {
+            std::fputs("Not a binary STL...", stderr);
+            // TODO: try parse ascii instead?
+            return {};
+        }
+
+        int64_t data_size = sz - 80 - 4;
+        if (data_size < STL_MIN_SIZE) {
+            std::fputs("Invalid binary STL...", stderr);
+            return {};
+        }
 
         uint32_t num_facets{0};
         fs.read(reinterpret_cast<char*>(&num_facets), 4);
@@ -104,13 +104,13 @@ std::optional<STLdata> read(const std::string& file) {
             }
             for (int j = 0; j < 3; ++j) {
                 if (read_stl_elem(data[i].m_vertices[j], fs) == false) {
-					fprintf(stderr, "Failed reading facet %llu from file...", i);
+                    fprintf(stderr, "Failed reading facet %llu from file...", i);
                     return {};
                 }
             }
             fs.read(reinterpret_cast<char*>(&data[i].m_attribute), 2);
             if (fs.gcount() != 2) {
-				fprintf(stderr, "Failed reading facet %llu from file...", i);
+                fprintf(stderr, "Failed reading facet %llu from file...", i);
                 return {};
             }
         }
@@ -143,20 +143,22 @@ struct Vert {
 };
 
 void fill_vertex_buffer(const STL::STLdata& data, std::vector<Vert>& vertices, glm::vec3& vmin,
-                        glm::vec3& vmax) {
+                        glm::vec3& vmax, glm::vec3& centroid) {
     using namespace glm;
     vmin = vec3(FLT_MAX);
     vmax = vec3(-FLT_MAX);
+    centroid = vec3(0.f);
     for (auto& f : data) {
         vec3 fn = f.m_normal;
         if (length(fn) < 1e-5f) {
             fn = normalize(
-                cross(f.m_vertices[2] - f.m_vertices[0], f.m_vertices[1] - f.m_vertices[0]));
+                cross(f.m_vertices[1] - f.m_vertices[0], f.m_vertices[2] - f.m_vertices[0]));
         }
         for (auto& v : f.m_vertices) {
             vertices.emplace_back(v, fn);
             vmin = glm::min(vmin, v);
             vmax = glm::max(vmax, v);
+            centroid += (v / (data.size() * 3.f));
         }
     }
 }
@@ -181,7 +183,7 @@ bool compileGLSLShaderFromFile(const std::string& file, GLint type, GLuint& shad
         glGetShaderiv(shader_object, GL_INFO_LOG_LENGTH, &maxLength);
         std::vector<GLchar> errorLog(maxLength);
         glGetShaderInfoLog(shader_object, maxLength, &maxLength, &errorLog[0]);
-        fprintf(stderr, "Shader compilation error: %s", errorLog.data());
+        fprintf(stderr, "(%s) Shader compilation error: %s", file.c_str(), errorLog.data());
         return false;
     }
     return true;
@@ -230,7 +232,7 @@ int render_stl(const std::string& stl, bool windowed) {
         GLint params = GL_FALSE;
         glGetProgramiv(program, GL_LINK_STATUS, &params);
         if (params != GL_TRUE) {
-			fputs( "Failed to link shader program", stderr);
+            fputs("Failed to link shader program", stderr);
             return -1;
         }
 
@@ -238,16 +240,19 @@ int render_stl(const std::string& stl, bool windowed) {
         glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
 
         std::vector<Graphics::Vert> vertices;
-        vec3 vert_min, vert_max;
-        fill_vertex_buffer(*data, vertices, vert_min, vert_max);
+        vec3 vert_min, vert_max, model_center;
+        fill_vertex_buffer(*data, vertices, vert_min, vert_max, model_center);
         auto buffer_size = sizeof(vertices) * vertices.size();
         glBufferData(GL_ARRAY_BUFFER, buffer_size, reinterpret_cast<void*>(vertices.data()),
                      GL_STATIC_DRAW);
 
-        GLint mvp_location, vposition_location, vnormal_location;
+        GLint mvp_location, vposition_location, vnormal_location, eye_location, model_location;
         mvp_location = glGetUniformLocation(program, "MVP");
+        eye_location = glGetUniformLocation(program, "Eye");
+		model_location = glGetUniformLocation(program, "M");
         vposition_location = glGetAttribLocation(program, "vPosition");
         vnormal_location = glGetAttribLocation(program, "vNormal");
+
 
         glEnableVertexAttribArray(vposition_location);
         glVertexAttribPointer(vposition_location, Graphics::Vert::position_elements,
@@ -262,52 +267,56 @@ int render_stl(const std::string& stl, bool windowed) {
         }
 
         // Figure out a model to world matrix that normalizes the model scale and center
-        vec3 scale = 2.f / (vert_max - vert_min);
-        vec3 translate = -((vert_max - vert_min) * 0.5f);
+        float scale = 2.f / glm::compMax(vert_max - vert_min);
+        vec3 translate = -model_center;  //-((vert_max - vert_min) * 0.5f);
         mat4 model_T = glm::translate(mat4(1.f), translate);
         mat4 model_S = glm::scale(mat4(1.f), vec3(scale));
         mat4 model = model_S * model_T;
 
         struct View {
-            glm::mat4 m_viewMat;
+            mat4 m_viewMat;
+			mat4 m_modelMat;
+            vec3 m_eyeVec;
             bool m_perspective = true;
             std::string m_viewName;
         };
 
         float vd = 4.f;
         std::array<View, 7> render_views = {
-            View{glm::lookAt(vec3(vd, 0.f, 0.f), vec3(0.f), vec3(0.f, 1.f, 0.f)) * model, true,
-                 "px"},
-            View{glm::lookAt(vec3(-vd, 0.f, 0.f), vec3(0.f), vec3(0.f, 1.f, 0.f)) * model, true,
-                 "nx"},
-            View{glm::lookAt(vec3(0.f, vd, 0.f), vec3(0.f), vec3(0.f, 0.f, 1.f)) * model, true,
-                 "py"},
-            View{glm::lookAt(vec3(0.f, -vd, 0.f), vec3(0.f), vec3(0.f, 0.f, 1.f)) * model, true,
-                 "ny"},
-            View{glm::lookAt(vec3(0.f, 0.f, vd), vec3(0.f), vec3(0.f, 1.f, 0.f)) * model, true,
-                 "pz"},
-            View{glm::lookAt(vec3(0.f, 0.f, -vd), vec3(0.f), vec3(0.f, 1.f, 0.f)) * model, true,
-                 "nz"},
-            View{glm::lookAt(vec3(vd, vd, vd), vec3(0.f), vec3(0.f, 1.f, 0.f)) * model, false,
-                 "or"},
+            View{glm::lookAt(vec3(vd, 0.f, 0.f), vec3(0.f), vec3(0.f, 1.f, 0.f)), model,
+                 vec3(vd, 0.f, 0.f), true, "px"},
+            View{glm::lookAt(vec3(-vd, 0.f, 0.f), vec3(0.f), vec3(0.f, 1.f, 0.f)), model,
+                 vec3(-vd, 0.f, 0.f), true, "nx"},
+            View{glm::lookAt(vec3(0.f, vd, 0.f), vec3(0.f), vec3(0.f, 0.f, 1.f)), model,
+                 vec3(0.f, vd, 0.f), true, "py"},
+            View{glm::lookAt(vec3(0.f, -vd, 0.f), vec3(0.f), vec3(0.f, 0.f, 1.f)), model,
+                 vec3(0.f, -vd, 0.f), true, "ny"},
+            View{glm::lookAt(vec3(0.f, 0.f, vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model,
+                 vec3(0.f, 0.f, vd), true, "pz"},
+            View{glm::lookAt(vec3(0.f, 0.f, -vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model,
+                 vec3(0.f, 0.f, -vd), true, "nz"},
+            View{glm::lookAt(vec3(vd, vd, vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model,
+                 vec3(vd, vd, vd), false, "or"},
         };
 
-        auto draw_gl_view = [](View& view, int width, int height, GLuint program, GLuint mvp_loc,
-                               GLsizei verts) {
+        auto draw_gl_view = [](View& view, int width, int height, GLuint program, GLuint mvp_loc, 
+								GLuint eye_loc, GLuint model_loc, GLsizei verts) {
             float ratio = width / (float)height;
             mat4 proj;
             if (view.m_perspective) {
-                proj = glm::perspective(45.0f, ratio, 0.1f, 4.f);
+                proj = glm::perspective(45.0f, ratio, 0.1f, 100.f);
             } else {
                 float os = 2.5;
-                proj = glm::ortho(-os * ratio, os * ratio, -os, os, 0.f, 10.f);
+                proj = glm::ortho(-os * ratio, os * ratio, -os, os, 0.f, 100.f);
             }
             glViewport(0, 0, width, height);
             glClearColor(0.1f, 0.1f, 0.1f, 1.f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             glUseProgram(program);
-            glm::mat4 mvp = proj * view.m_viewMat;
+            glm::mat4 mvp = proj * view.m_viewMat * view.m_modelMat;
             glUniformMatrix4fv(mvp_loc, 1, GL_FALSE, glm::value_ptr(mvp));
+			glUniform3fv(eye_loc, 1, glm::value_ptr(view.m_eyeVec));
+			glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(view.m_modelMat));
             glDisable(GL_CULL_FACE);
             glEnable(GL_DEPTH_TEST);
             glDrawArrays(GL_TRIANGLES, 0, verts);
@@ -320,7 +329,7 @@ int render_stl(const std::string& stl, bool windowed) {
                 glfwGetFramebufferSize(window, &width, &height);
 
                 draw_gl_view(render_views[count / frames_per_view], width, height, program,
-                             mvp_location, static_cast<GLsizei>(vertices.size()));
+                             mvp_location, eye_location, model_location, static_cast<GLsizei>(vertices.size()));
 
                 glfwSwapBuffers(window);
                 glfwPollEvents();
@@ -335,7 +344,7 @@ int render_stl(const std::string& stl, bool windowed) {
             glfwGetFramebufferSize(window, &width, &height);
             float ratio = width / (float)height;
             for (auto view : render_views) {
-                draw_gl_view(view, width, height, program, mvp_location,
+                draw_gl_view(view, width, height, program, mvp_location, eye_location, model_location,
                              static_cast<GLsizei>(vertices.size()));
 
                 std::vector<uint8_t> pixels;
@@ -368,7 +377,8 @@ Usage:
 	Needs fragment.glsl and vertex.glsl in current directory.
 
 		-window		option will open a renderwindow and draw the object
-)", stdout);
+)",
+               stdout);
 }
 
 int main(int argc, const char** argv) {
