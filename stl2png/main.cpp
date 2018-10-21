@@ -44,8 +44,7 @@ struct STLfacet {
 typedef std::vector<STLfacet> STLdata;
 
 constexpr int STL_ELEM_SIZE = 3 * 4;
-constexpr int STL_TRIANGLE_SIZE =
-    4 * (STL_ELEM_SIZE /*normal*/ + 3 * STL_ELEM_SIZE /*verts*/) + 2 /*attribute*/;
+constexpr int STL_TRIANGLE_SIZE = 4 * (STL_ELEM_SIZE /*normal*/ + 3 * STL_ELEM_SIZE /*verts*/) + 2 /*attribute*/;
 constexpr int STL_MIN_SIZE = 4 + STL_TRIANGLE_SIZE;
 
 std::optional<STLdata> read(const std::string& file) {
@@ -124,9 +123,7 @@ std::optional<STLdata> read(const std::string& file) {
 
 namespace Graphics {
 
-void error_callback(int error, const char* description) {
-    fprintf(stderr, "Error: %s\n", description);
-}
+void error_callback(int error, const char* description) { fprintf(stderr, "Error: %s\n", description); }
 
 #pragma pack(1)
 struct Vert {
@@ -142,8 +139,8 @@ struct Vert {
     static constexpr int normal_type = GL_FLOAT;
 };
 
-void fill_vertex_buffer(const STL::STLdata& data, std::vector<Vert>& vertices, glm::vec3& vmin,
-                        glm::vec3& vmax, glm::vec3& centroid) {
+void fill_vertex_buffer(const STL::STLdata& data, std::vector<Vert>& vertices, glm::vec3& vmin, glm::vec3& vmax,
+                        glm::vec3& centroid) {
     using namespace glm;
     vmin = vec3(FLT_MAX);
     vmax = vec3(-FLT_MAX);
@@ -151,8 +148,7 @@ void fill_vertex_buffer(const STL::STLdata& data, std::vector<Vert>& vertices, g
     for (auto& f : data) {
         vec3 fn = f.m_normal;
         if (length(fn) < 1e-5f) {
-            fn = normalize(
-                cross(f.m_vertices[1] - f.m_vertices[0], f.m_vertices[2] - f.m_vertices[0]));
+            fn = normalize(cross(f.m_vertices[1] - f.m_vertices[0], f.m_vertices[2] - f.m_vertices[0]));
         }
         for (auto& v : f.m_vertices) {
             vertices.emplace_back(v, fn);
@@ -217,12 +213,10 @@ int render_stl(const std::string& stl, bool windowed) {
         glfwSwapInterval(1);
 
         GLuint vertex_buffer, vertex_shader, fragment_shader, program;
-        if (Graphics::compileGLSLShaderFromFile("vertex.glsl", GL_VERTEX_SHADER, vertex_shader) ==
-            false) {
+        if (Graphics::compileGLSLShaderFromFile("vertex.glsl", GL_VERTEX_SHADER, vertex_shader) == false) {
             return -1;
         }
-        if (Graphics::compileGLSLShaderFromFile("fragment.glsl", GL_FRAGMENT_SHADER,
-                                                fragment_shader) == false) {
+        if (Graphics::compileGLSLShaderFromFile("fragment.glsl", GL_FRAGMENT_SHADER, fragment_shader) == false) {
             return -1;
         }
         program = glCreateProgram();
@@ -243,39 +237,36 @@ int render_stl(const std::string& stl, bool windowed) {
         vec3 vert_min, vert_max, model_center;
         fill_vertex_buffer(*data, vertices, vert_min, vert_max, model_center);
         auto buffer_size = sizeof(vertices) * vertices.size();
-        glBufferData(GL_ARRAY_BUFFER, buffer_size, reinterpret_cast<void*>(vertices.data()),
-                     GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, buffer_size, reinterpret_cast<void*>(vertices.data()), GL_STATIC_DRAW);
 
         GLint mvp_location, vposition_location, vnormal_location, eye_location, model_location;
         mvp_location = glGetUniformLocation(program, "MVP");
         eye_location = glGetUniformLocation(program, "Eye");
-		model_location = glGetUniformLocation(program, "M");
+        model_location = glGetUniformLocation(program, "M");
         vposition_location = glGetAttribLocation(program, "vPosition");
         vnormal_location = glGetAttribLocation(program, "vNormal");
 
-
         glEnableVertexAttribArray(vposition_location);
-        glVertexAttribPointer(vposition_location, Graphics::Vert::position_elements,
-                              Graphics::Vert::position_type, GL_FALSE, sizeof(Graphics::Vert),
+        glVertexAttribPointer(vposition_location, Graphics::Vert::position_elements, Graphics::Vert::position_type,
+                              GL_FALSE, sizeof(Graphics::Vert),
                               reinterpret_cast<void*>(Graphics::Vert::position_offset));
         if (vnormal_location >= 0) {
             glEnableVertexAttribArray(vnormal_location);
-            glVertexAttribPointer(
-                vnormal_location, Graphics::Vert::normal_elements, Graphics::Vert::normal_type,
-                GL_FALSE, sizeof(Graphics::Vert),
-                reinterpret_cast<const void*>(int(Graphics::Vert::normal_offset)));
+            glVertexAttribPointer(vnormal_location, Graphics::Vert::normal_elements, Graphics::Vert::normal_type,
+                                  GL_FALSE, sizeof(Graphics::Vert),
+                                  reinterpret_cast<const void*>(int(Graphics::Vert::normal_offset)));
         }
 
         // Figure out a model to world matrix that normalizes the model scale and center
         float scale = 2.f / glm::compMax(vert_max - vert_min);
-        vec3 translate = -model_center;  //-((vert_max - vert_min) * 0.5f);
+        vec3 translate = -model_center;  
         mat4 model_T = glm::translate(mat4(1.f), translate);
         mat4 model_S = glm::scale(mat4(1.f), vec3(scale));
         mat4 model = model_S * model_T;
 
         struct View {
             mat4 m_viewMat;
-			mat4 m_modelMat;
+            mat4 m_modelMat;
             vec3 m_eyeVec;
             bool m_perspective = true;
             std::string m_viewName;
@@ -283,24 +274,23 @@ int render_stl(const std::string& stl, bool windowed) {
 
         float vd = 4.f;
         std::array<View, 7> render_views = {
-            View{glm::lookAt(vec3(vd, 0.f, 0.f), vec3(0.f), vec3(0.f, 1.f, 0.f)), model,
-                 vec3(vd, 0.f, 0.f), true, "px"},
-            View{glm::lookAt(vec3(-vd, 0.f, 0.f), vec3(0.f), vec3(0.f, 1.f, 0.f)), model,
-                 vec3(-vd, 0.f, 0.f), true, "nx"},
-            View{glm::lookAt(vec3(0.f, vd, 0.f), vec3(0.f), vec3(0.f, 0.f, 1.f)), model,
-                 vec3(0.f, vd, 0.f), true, "py"},
-            View{glm::lookAt(vec3(0.f, -vd, 0.f), vec3(0.f), vec3(0.f, 0.f, 1.f)), model,
-                 vec3(0.f, -vd, 0.f), true, "ny"},
-            View{glm::lookAt(vec3(0.f, 0.f, vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model,
-                 vec3(0.f, 0.f, vd), true, "pz"},
-            View{glm::lookAt(vec3(0.f, 0.f, -vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model,
-                 vec3(0.f, 0.f, -vd), true, "nz"},
-            View{glm::lookAt(vec3(vd, vd, vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model,
-                 vec3(vd, vd, vd), false, "or"},
+            View{glm::lookAt(vec3(vd, 0.f, 0.f), vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(vd, 0.f, 0.f), true,
+                 "px"},
+            View{glm::lookAt(vec3(-vd, 0.f, 0.f), vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(-vd, 0.f, 0.f), true,
+                 "nx"},
+            View{glm::lookAt(vec3(0.f, vd, 0.f), vec3(0.f), vec3(0.f, 0.f, 1.f)), model, vec3(0.f, vd, 0.f), true,
+                 "py"},
+            View{glm::lookAt(vec3(0.f, -vd, 0.f), vec3(0.f), vec3(0.f, 0.f, 1.f)), model, vec3(0.f, -vd, 0.f), true,
+                 "ny"},
+            View{glm::lookAt(vec3(0.f, 0.f, vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(0.f, 0.f, vd), true,
+                 "pz"},
+            View{glm::lookAt(vec3(0.f, 0.f, -vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(0.f, 0.f, -vd), true,
+                 "nz"},
+            View{glm::lookAt(vec3(vd, vd, vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(vd, vd, vd), false, "or"},
         };
 
-        auto draw_gl_view = [](View& view, int width, int height, GLuint program, GLuint mvp_loc, 
-								GLuint eye_loc, GLuint model_loc, GLsizei verts) {
+        auto draw_gl_view = [](View& view, int width, int height, GLuint program, GLuint mvp_loc, GLuint eye_loc,
+                               GLuint model_loc, GLsizei verts) {
             float ratio = width / (float)height;
             mat4 proj;
             if (view.m_perspective) {
@@ -315,30 +305,30 @@ int render_stl(const std::string& stl, bool windowed) {
             glUseProgram(program);
             glm::mat4 mvp = proj * view.m_viewMat * view.m_modelMat;
             glUniformMatrix4fv(mvp_loc, 1, GL_FALSE, glm::value_ptr(mvp));
-			glUniform3fv(eye_loc, 1, glm::value_ptr(view.m_eyeVec));
-			glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(view.m_modelMat));
+            glUniform3fv(eye_loc, 1, glm::value_ptr(view.m_eyeVec));
+            glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(view.m_modelMat));
             glDisable(GL_CULL_FACE);
             glEnable(GL_DEPTH_TEST);
             glDrawArrays(GL_TRIANGLES, 0, verts);
         };
         if (windowed) {
+			// show a window cycling through the views, showing each for a set number of frames
             signed count = 0;
             signed frames_per_view = 100;
             while (!glfwWindowShouldClose(window)) {
                 int width{0}, height{0};
                 glfwGetFramebufferSize(window, &width, &height);
-
-                draw_gl_view(render_views[count / frames_per_view], width, height, program,
-                             mvp_location, eye_location, model_location, static_cast<GLsizei>(vertices.size()));
-
+                draw_gl_view(render_views[count / frames_per_view], width, height, program, mvp_location, eye_location,
+                             model_location, static_cast<GLsizei>(vertices.size()));
                 glfwSwapBuffers(window);
                 glfwPollEvents();
                 ++count;
                 count %= (frames_per_view * render_views.size());
             }
         } else {
-            int c = 4;
-            int byte_per_channel = 1;
+			// headless render to framebuffer and write out png files
+            int channels = 4;
+            int bytes_per_channel = 1;
             glfwSetWindowSize(window, 1920, 1080);
             int width{0}, height{0};
             glfwGetFramebufferSize(window, &width, &height);
@@ -348,13 +338,13 @@ int render_stl(const std::string& stl, bool windowed) {
                              static_cast<GLsizei>(vertices.size()));
 
                 std::vector<uint8_t> pixels;
-                pixels.resize(width * height * c * byte_per_channel);
+                pixels.resize(width * height * channels * bytes_per_channel);
                 glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
                 std::stringstream name;
                 name << std::string("view_") << view.m_viewName << ".png";
-                if (1 != stbi_write_png(name.str().c_str(), width, height, c, pixels.data(),
-                                        width * c * byte_per_channel)) {
+				int stride = width * channels * bytes_per_channel;
+                if (stbi_write_png(	name.str().c_str(), width, height, channels, pixels.data(), stride ) != 1) {
                     fprintf(stderr, "Failed to write image \"%s\"", name.str().c_str());
                     return -1;
                 }
@@ -394,8 +384,8 @@ int main(int argc, const char** argv) {
         if (arg[0] == '-') {
             // option
             options.emplace_back(arg.substr(1));
-            std::transform(std::begin(options.back()), std::end(options.back()),
-                           std::begin(options.back()), std::tolower);
+            std::transform(std::begin(options.back()), std::end(options.back()), std::begin(options.back()),
+                           std::tolower);
         } else {
             // file
             input.emplace_back(arg);
