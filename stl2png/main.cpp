@@ -34,6 +34,7 @@ bool file_to_string(const std::string& file, std::string& str) {
     }
 }
 }  // namespace
+
 namespace STL {
 struct STLfacet {
     glm::vec3 m_normal;
@@ -82,7 +83,7 @@ std::optional<STLdata> read(const std::string& file) {
         fs.read(reinterpret_cast<char*>(&num_facets), 4);
         auto read_bytes = fs.gcount();
         if (read_bytes != 4) {
-            puts("Failed reading num facets from file...");
+            fputs("Failed reading num facets from file...", stderr);
             return {};
         }
         data.resize(num_facets);
@@ -96,20 +97,20 @@ std::optional<STLdata> read(const std::string& file) {
             fs.read(reinterpret_cast<char*>(glm::value_ptr(to)), STL_ELEM_SIZE);
             return fs.gcount() == STL_ELEM_SIZE;
         };
-        for (size_t i = 0; i < num_facets; ++i) {
-            if (read_stl_elem(data[i].m_normal, fs) == false) {
-                fprintf(stderr, "Failed reading facet %llu from file...", i);
+        for (auto& face : data) {
+            if (read_stl_elem(face.m_normal, fs) == false) {
+                fputs("Failed reading facet from file...", stderr);
                 return {};
             }
-            for (int j = 0; j < 3; ++j) {
-                if (read_stl_elem(data[i].m_vertices[j], fs) == false) {
-                    fprintf(stderr, "Failed reading facet %llu from file...", i);
+            for (auto& v : face.m_vertices) {
+                if (read_stl_elem(v, fs) == false) {
+                    fputs("Failed reading vertex from file...", stderr);
                     return {};
                 }
             }
-            fs.read(reinterpret_cast<char*>(&data[i].m_attribute), 2);
+            fs.read(reinterpret_cast<char*>(&face.m_attribute), 2);
             if (fs.gcount() != 2) {
-                fprintf(stderr, "Failed reading facet %llu from file...", i);
+                fputs("Failed reading facet from file...", stderr);
                 return {};
             }
         }
@@ -201,7 +202,7 @@ int render_stl(const std::string& stl, bool windowed) {
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
         glfwWindowHint(GLFW_VISIBLE, windowed ? GLFW_TRUE : GLFW_FALSE);
-        window = glfwCreateWindow(640, 480, "STL2PNG", NULL, NULL);
+        window = glfwCreateWindow(640, 480, "STL2PNG", nullptr, nullptr);
         if (!window) {
             glfwTerminate();
             fprintf(stderr, "Failed to create glfw window");
@@ -259,7 +260,7 @@ int render_stl(const std::string& stl, bool windowed) {
 
         // Figure out a model to world matrix that normalizes the model scale and center
         float scale = 2.f / glm::compMax(vert_max - vert_min);
-        vec3 translate = -model_center;  
+        vec3 translate = -model_center;
         mat4 model_T = glm::translate(mat4(1.f), translate);
         mat4 model_S = glm::scale(mat4(1.f), vec3(scale));
         mat4 model = model_S * model_T;
@@ -273,23 +274,18 @@ int render_stl(const std::string& stl, bool windowed) {
         };
 
         float vd = 4.f;
+        using glm::lookAt;
         std::array<View, 7> render_views = {
-            View{glm::lookAt(vec3(vd, 0.f, 0.f), vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(vd, 0.f, 0.f), true,
-                 "px"},
-            View{glm::lookAt(vec3(-vd, 0.f, 0.f), vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(-vd, 0.f, 0.f), true,
-                 "nx"},
-            View{glm::lookAt(vec3(0.f, vd, 0.f), vec3(0.f), vec3(0.f, 0.f, 1.f)), model, vec3(0.f, vd, 0.f), true,
-                 "py"},
-            View{glm::lookAt(vec3(0.f, -vd, 0.f), vec3(0.f), vec3(0.f, 0.f, 1.f)), model, vec3(0.f, -vd, 0.f), true,
-                 "ny"},
-            View{glm::lookAt(vec3(0.f, 0.f, vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(0.f, 0.f, vd), true,
-                 "pz"},
-            View{glm::lookAt(vec3(0.f, 0.f, -vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(0.f, 0.f, -vd), true,
-                 "nz"},
-            View{glm::lookAt(vec3(vd, vd, vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(vd, vd, vd), false, "or"},
+            View{lookAt(vec3(vd, 0.f, 0.f), vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(vd, 0.f, 0.f),  true, "px"},
+            View{lookAt(vec3(-vd, 0.f, 0.f),vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(-vd, 0.f, 0.f), true, "nx"},
+            View{lookAt(vec3(0.f, vd, 0.f), vec3(0.f), vec3(0.f, 0.f, 1.f)), model, vec3(0.f, vd, 0.f),  true, "py"},
+            View{lookAt(vec3(0.f, -vd, 0.f),vec3(0.f), vec3(0.f, 0.f, 1.f)), model, vec3(0.f, -vd, 0.f), true, "ny"},
+            View{lookAt(vec3(0.f, 0.f, vd), vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(0.f, 0.f, vd),  true, "pz"},
+            View{lookAt(vec3(0.f, 0.f, -vd),vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(0.f, 0.f, -vd), true, "nz"},
+            View{lookAt(vec3(vd, vd, vd),   vec3(0.f), vec3(0.f, 1.f, 0.f)), model, vec3(vd, vd, vd),   false, "or"},
         };
 
-        auto draw_gl_view = [](View& view, int width, int height, GLuint program, GLuint mvp_loc, GLuint eye_loc,
+        auto draw_gl_view = [](const View& view, int width, int height, GLuint program, GLuint mvp_loc, GLuint eye_loc,
                                GLuint model_loc, GLsizei verts) {
             float ratio = width / (float)height;
             mat4 proj;
@@ -312,7 +308,7 @@ int render_stl(const std::string& stl, bool windowed) {
             glDrawArrays(GL_TRIANGLES, 0, verts);
         };
         if (windowed) {
-			// show a window cycling through the views, showing each for a set number of frames
+            // show a window cycling through the views, showing each for a set number of frames
             signed count = 0;
             signed frames_per_view = 100;
             while (!glfwWindowShouldClose(window)) {
@@ -326,14 +322,14 @@ int render_stl(const std::string& stl, bool windowed) {
                 count %= (frames_per_view * render_views.size());
             }
         } else {
-			// headless render to framebuffer and write out png files
+            // headless render to framebuffer and write out png files
             int channels = 4;
             int bytes_per_channel = 1;
             glfwSetWindowSize(window, 1920, 1080);
             int width{0}, height{0};
             glfwGetFramebufferSize(window, &width, &height);
             float ratio = width / (float)height;
-            for (auto view : render_views) {
+            for (const auto& view : render_views) {
                 draw_gl_view(view, width, height, program, mvp_location, eye_location, model_location,
                              static_cast<GLsizei>(vertices.size()));
 
@@ -343,8 +339,8 @@ int render_stl(const std::string& stl, bool windowed) {
 
                 std::stringstream name;
                 name << std::string("view_") << view.m_viewName << ".png";
-				int stride = width * channels * bytes_per_channel;
-                if (stbi_write_png(	name.str().c_str(), width, height, channels, pixels.data(), stride ) != 1) {
+                int stride = width * channels * bytes_per_channel;
+                if (stbi_write_png(name.str().c_str(), width, height, channels, pixels.data(), stride) != 1) {
                     fprintf(stderr, "Failed to write image \"%s\"", name.str().c_str());
                     return -1;
                 }
