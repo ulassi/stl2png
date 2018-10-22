@@ -9,14 +9,13 @@ vec3 g_light0_col = vec3(1.f, 1.f, 0.95f);
 vec3 g_light1_dir = vec3(-1.f, 0.1f, -0.5f);
 vec3 g_light1_col = vec3(0.1f, 0.1f, 0.2f);
 vec3 g_light2_dir = vec3(-0.1f, -0.5f, -0.5f);
-vec3 g_light2_col = vec3(0.1f, 0.1f, 0.0f);
+vec3 g_light2_col = vec3(0.1f, 0.0f, 0.0f);
 
 
 // material properties
-float kd = 0.1;
-vec3 ior = vec3(1.0);
-float roughness = 0.2;
-float metallic = 0.9;
+vec3 ior = vec3(2.0);
+float roughness = 0.15;
+float metallic = 1.0;
 
 // diffuse light contribution
 vec3 diffuse(vec3 n) {
@@ -96,6 +95,11 @@ vec3 specular(vec3 n, vec3 material) {
 
 void main() {
 	vec3 col = vec3(0);
+
+	// F0 again to conserve energy in diffuse
+	vec3 F0 = abs((1.0 - ior)/(1.0+ior));
+	F0 *= F0;
+	vec3 kd = 1 - F0;
 	col = color*((1.0 - kd)*specular(normal,color)+kd*diffuse(normal));
 	gl_FragColor = vec4(col,1.0);
 }
