@@ -44,9 +44,9 @@ struct STLfacet {
 
 typedef std::vector<STLfacet> STLdata;
 
-constexpr int STL_ELEM_SIZE = 3 * 4;
-constexpr int STL_TRIANGLE_SIZE = 4 * (STL_ELEM_SIZE /*normal*/ + 3 * STL_ELEM_SIZE /*verts*/) + 2 /*attribute*/;
-constexpr int STL_MIN_SIZE = 4 + STL_TRIANGLE_SIZE;
+const int STL_ELEM_SIZE = 3 * 4;
+const int STL_TRIANGLE_SIZE = 4 * (STL_ELEM_SIZE /*normal*/ + 3 * STL_ELEM_SIZE /*verts*/) + 2 /*attribute*/;
+const int STL_MIN_SIZE = 4 + STL_TRIANGLE_SIZE;
 
 std::optional<STLdata> read(const std::string& file) {
     if (std::ifstream fs = std::ifstream(file, std::ios_base::binary)) {
@@ -88,11 +88,6 @@ std::optional<STLdata> read(const std::string& file) {
         }
         data.resize(num_facets);
 
-        if (num_facets > 0x7FFFFFFF) {
-            puts("Oh dear...");
-            return {};
-        }
-
         constexpr auto read_stl_elem = [](glm::vec3& to, std::ifstream& fs) -> bool {
             fs.read(reinterpret_cast<char*>(glm::value_ptr(to)), STL_ELEM_SIZE);
             return fs.gcount() == STL_ELEM_SIZE;
@@ -132,12 +127,12 @@ struct Vert {
         : x(pos[0]), y(pos[1]), z(pos[2]), nx(normal[0]), ny(normal[1]), nz(normal[2]) {}
     float x = 0.f, y = 0.f, z = 0.f;
     float nx = 0.f, ny = 0.f, nz = 0.f;
-    static constexpr int position_offset = 0;
-    static constexpr int position_elements = 3;
-    static constexpr int position_type = GL_FLOAT;
-    static constexpr int normal_offset = 3 * sizeof(float);
-    static constexpr int normal_elements = 3;
-    static constexpr int normal_type = GL_FLOAT;
+    static const int position_offset = 0;
+    static const int position_elements = 3;
+    static const int position_type = GL_FLOAT;
+    static const int normal_offset = 3 * sizeof(float);
+    static const int normal_elements = 3;
+    static const int normal_type = GL_FLOAT;
 };
 
 void fill_vertex_buffer(const STL::STLdata& data, std::vector<Vert>& vertices, glm::vec3& vmin, glm::vec3& vmax,
