@@ -143,10 +143,13 @@ void fill_vertex_buffer(const STL::STLdata& data, std::vector<Vert>& vertices, g
     centroid = vec3(0.f);
     for (auto& f : data) {
         vec3 fn = f.m_normal;
-        if (length(fn) < 1e-5f) {
-            fn = normalize(cross(f.m_vertices[1] - f.m_vertices[0], f.m_vertices[2] - f.m_vertices[0]));
-        }
-        for (auto& v : f.m_vertices) {
+		if (length(fn) < 1e-5f) {
+			fn = normalize(cross(f.m_vertices[1] - f.m_vertices[0], f.m_vertices[2] - f.m_vertices[0]));
+		}
+		else {
+			fn = normalize(f.m_normal);
+		}
+		for (auto& v : f.m_vertices) {
             vertices.emplace_back(v, fn);
             vmin = glm::min(vmin, v);
             vmax = glm::max(vmax, v);
